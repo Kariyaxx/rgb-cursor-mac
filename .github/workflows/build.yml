@@ -1,0 +1,103 @@
+name: Build RGB Cursor for macOS
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+
+    steps:
+      - name: Download project
+        uses: actions/checkout@v4
+
+      - name: Create Swift package
+        run: |
+          mkdir RGB-Cursor
+          mv RGB-Cursor.swift RGB-Cursor/
+          cd RGB-Cursor
+
+          cat > Package.swift <<'EOF'
+          // swift-tools-version: 5.9
+
+          import PackageDescription
+
+          let package = Package(
+              name: "RGBCursor",
+              platforms: [
+                  .macOS(.v14)
+              ],
+              products: [
+                  .executable(
+                      name: "RGBCursor",
+                      targets: ["RGBCursor"]
+                  )
+              ],
+              targets: [
+                  .executableTarget(
+                      name: "RGBCursor"
+                  )
+              ]
+          )
+          EOF
+
+      - name: Build
+        run: |
+          cd RGB-Cursor
+          swift build -c release
+
+      - name: Create app
+        run: |
+          mkdir -p "RGB Cursor.app/Contents/MacOS"
+          mkdir -p "RGB Cursor.app/Contents/Resources"
+
+          cp .build/release/RGBCursor \
+             "RGB Cursor.app/Contents/MacOS/RGBCursor"
+
+          chmod +x "RGB Cursor.app/Contents/MacOS/RGBCursor"
+
+          cat > "RGB Cursor.app/Contents/Info.plist" <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+          "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleName</key>
+              <string>RGB Cursor</string>
+
+              <key>CFBundleDisplayName</key>
+              <string>RGB Cursor</string>
+
+              <key>CFBundleIdentifier</key>
+              <string>com.rgbcursor.app</string>
+
+              <key>CFBundleExecutable</key>
+              <string>RGBCursor</string>
+
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+
+              <key>CFBundleVersion</key>
+              <string>1.0</string>
+
+              <key>CFBundleShortVersionString</key>
+              <string>1.0</string>
+
+              <key>LSUIElement</key>
+              <true/>
+
+              <key>NSHighResolutionCapable</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
+
+      - name: Zip app
+        run: |
+          zip -r "RGB-Cursor-macOS.zip" "RGB Cursor.app"
+
+      - name: Upload app
+        uses: actions/upload-artifact@v4
+        with:
+          name: RGB-Cursor-macOS
+          path: RGB-Cursor-macOS.zip
