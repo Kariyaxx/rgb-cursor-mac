@@ -1,8 +1,6 @@
 import Cocoa
 import QuartzCore
 
-// MARK: - RGB Cursor View
-
 final class CursorView: NSView {
 
     private var hue: CGFloat = 0
@@ -12,69 +10,72 @@ final class CursorView: NSView {
             return
         }
 
-        let size: CGFloat = 32
+        context.clear(bounds)
 
-        context.clear(CGRect(x: 0, y: 0, width: size, height: size))
-
+        // Soft pastel rainbow
         let color = NSColor(
             hue: hue / 360.0,
-            saturation: 1.0,
+            saturation: 0.45,
             brightness: 1.0,
             alpha: 1.0
         )
 
-        // Cursor shape
+        // Small 24x24 cursor
         let path = CGMutablePath()
 
-        path.move(to: CGPoint(x: 5, y: 27))
-        path.addLine(to: CGPoint(x: 5, y: 5))
-        path.addLine(to: CGPoint(x: 24, y: 20))
+        path.move(to: CGPoint(x: 4, y: 20))
+        path.addLine(to: CGPoint(x: 4, y: 4))
+        path.addLine(to: CGPoint(x: 18, y: 14))
+        path.addLine(to: CGPoint(x: 12, y: 14))
         path.addLine(to: CGPoint(x: 16, y: 20))
-        path.addLine(to: CGPoint(x: 21, y: 27))
-        path.addLine(to: CGPoint(x: 17, y: 30))
-        path.addLine(to: CGPoint(x: 12, y: 22))
+        path.addLine(to: CGPoint(x: 13, y: 22))
+        path.addLine(to: CGPoint(x: 9, y: 16))
         path.closeSubpath()
 
-        // RGB glow
+        // Very subtle glow
         context.saveGState()
 
         context.setShadow(
             offset: .zero,
-            blur: 4,
-            color: color.withAlphaComponent(0.8).cgColor
+            blur: 2,
+            color: color.withAlphaComponent(0.35).cgColor
         )
 
         context.setStrokeColor(color.cgColor)
-        context.setLineWidth(2)
+        context.setLineWidth(1.2)
 
         context.addPath(path)
         context.strokePath()
 
         context.restoreGState()
 
-        // Black outline
-        context.setStrokeColor(NSColor.black.cgColor)
-        context.setLineWidth(3)
+        // Soft dark outline
+        context.setStrokeColor(
+            NSColor.black.withAlphaComponent(0.65).cgColor
+        )
+        context.setLineWidth(1.5)
 
         context.addPath(path)
         context.strokePath()
 
-        // White body
-        context.setFillColor(NSColor.white.cgColor)
+        // White center
+        context.setFillColor(
+            NSColor.white.withAlphaComponent(0.95).cgColor
+        )
 
         context.addPath(path)
         context.fillPath()
 
-        // RGB edge
+        // Pastel RGB edge
         context.setStrokeColor(color.cgColor)
-        context.setLineWidth(1.5)
+        context.setLineWidth(1)
 
         context.addPath(path)
         context.strokePath()
     }
 
     func updateHue() {
-        hue += 5
+        hue += 1
 
         if hue >= 360 {
             hue = 0
@@ -94,8 +95,8 @@ final class CursorWindow: NSWindow {
             contentRect: NSRect(
                 x: 0,
                 y: 0,
-                width: 32,
-                height: 32
+                width: 24,
+                height: 24
             ),
             styleMask: .borderless,
             backing: .buffered,
@@ -106,10 +107,8 @@ final class CursorWindow: NSWindow {
         backgroundColor = .clear
         hasShadow = false
 
-        // Don't block mouse clicks
         ignoresMouseEvents = true
 
-        // Stay above normal windows
         level = NSWindow.Level(
             rawValue: Int(CGWindowLevelForKey(.cursorWindow))
         )
@@ -123,7 +122,7 @@ final class CursorWindow: NSWindow {
 }
 
 
-// MARK: - App Delegate
+// MARK: - App
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
@@ -135,8 +134,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var isCursorEnabled = true
 
 
-    // MARK: Start
-
     func applicationDidFinishLaunching(_ notification: Notification) {
 
         setupMenuBar()
@@ -145,8 +142,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             frame: NSRect(
                 x: 0,
                 y: 0,
-                width: 32,
-                height: 32
+                width: 24,
+                height: 24
             )
         )
 
@@ -155,10 +152,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         cursorWindow.orderFrontRegardless()
 
-        // Hide normal cursor
         CGDisplayHideCursor(CGMainDisplayID())
 
-        // RGB animation
         timer = Timer.scheduledTimer(
             withTimeInterval: 0.04,
             repeats: true
@@ -185,7 +180,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let menu = NSMenu()
 
-        // Title
         let titleItem = NSMenuItem(
             title: "RGB Cursor",
             action: nil,
@@ -193,11 +187,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         titleItem.isEnabled = false
-        menu.addItem(titleItem)
 
+        menu.addItem(titleItem)
         menu.addItem(NSMenuItem.separator())
 
-        // ON/OFF
         let toggleItem = NSMenuItem(
             title: "RGB Cursor: ON",
             action: #selector(toggleCursor),
@@ -208,10 +201,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         toggleItem.tag = 100
 
         menu.addItem(toggleItem)
-
         menu.addItem(NSMenuItem.separator())
 
-        // Quit
         let quitItem = NSMenuItem(
             title: "Quit RGB Cursor",
             action: #selector(quitApp),
@@ -252,21 +243,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
             if item.tag == 100 {
 
-                if isCursorEnabled {
-                    item.title = "RGB Cursor: ON"
-                } else {
-                    item.title = "RGB Cursor: OFF"
-                }
+                item.title = isCursorEnabled
+                    ? "RGB Cursor: ON"
+                    : "RGB Cursor: OFF"
             }
         }
     }
 
 
-    // MARK: Enable
-
     private func enableCursor() {
-
-        isCursorEnabled = true
 
         cursorWindow.orderFrontRegardless()
 
@@ -274,11 +259,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
 
-    // MARK: Disable
-
     private func disableCursor() {
-
-        isCursorEnabled = false
 
         cursorWindow.orderOut(nil)
 
@@ -286,7 +267,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
 
-    // MARK: Update Cursor
+    // MARK: Cursor Position
 
     private func updateCursor() {
 
@@ -298,9 +279,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let mouse = NSEvent.mouseLocation
 
-        // Position cursor tip at real mouse position
-        let x = mouse.x - 5
-        let y = mouse.y - 27
+        let x = mouse.x - 4
+        let y = mouse.y - 20
 
         cursorWindow.setFrameOrigin(
             NSPoint(
@@ -321,8 +301,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
 
-    // MARK: Restore
-
     private func restoreCursor() {
 
         timer?.invalidate()
@@ -340,7 +318,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 
-// MARK: - Start App
+// MARK: - Start
 
 let app = NSApplication.shared
 
