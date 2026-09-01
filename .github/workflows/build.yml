@@ -34,20 +34,28 @@ jobs:
           <dict>
               <key>CFBundleName</key>
               <string>RGB Cursor</string>
+
               <key>CFBundleDisplayName</key>
               <string>RGB Cursor</string>
+
               <key>CFBundleIdentifier</key>
               <string>com.rgbcursor.app</string>
+
               <key>CFBundleExecutable</key>
               <string>RGBCursor</string>
+
               <key>CFBundlePackageType</key>
               <string>APPL</string>
+
               <key>CFBundleVersion</key>
               <string>1.0</string>
+
               <key>CFBundleShortVersionString</key>
               <string>1.0</string>
+
               <key>LSUIElement</key>
               <true/>
+
               <key>NSHighResolutionCapable</key>
               <true/>
           </dict>
