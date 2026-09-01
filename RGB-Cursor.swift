@@ -1,6 +1,8 @@
 import Cocoa
 import QuartzCore
 
+// MARK: - RGB Cursor View
+
 final class CursorView: NSView {
 
     private var hue: CGFloat = 0
@@ -21,6 +23,7 @@ final class CursorView: NSView {
         )
 
         // Small normal arrow.
+        // Tip is at the top-left.
         let path = CGMutablePath()
 
         path.move(to: CGPoint(x: 3, y: 3))
@@ -32,6 +35,7 @@ final class CursorView: NSView {
         path.addLine(to: CGPoint(x: 9, y: 9))
         path.closeSubpath()
 
+        // Soft pastel glow.
         context.saveGState()
 
         context.setShadow(
@@ -88,8 +92,10 @@ final class CursorWindow: NSWindow {
         backgroundColor = .clear
         hasShadow = false
 
+        // Never block mouse clicks.
         ignoresMouseEvents = true
 
+        // Put RGB cursor above the normal cursor level.
         level = NSWindow.Level(
             rawValue: Int(
                 CGWindowLevelForKey(.cursorWindow)
@@ -113,9 +119,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var cursorView: CursorView!
 
     private var animationTimer: Timer!
-    private var hideTimer: Timer!
+    private var cursorHideTimer: Timer!
 
     private var statusItem: NSStatusItem!
+
+    private var mouseMonitor: Any?
+    private var clickMonitor: Any?
+    private var keyMonitor: Any?
 
     private var isCursorEnabled = true
 
@@ -141,8 +151,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         cursorWindow.contentView = cursorView
 
+        // Hide the real cursor.
         hideRealCursor()
 
+        // Show our RGB cursor.
         cursorWindow.orderFrontRegardless()
 
         // RGB animation.
@@ -159,11 +171,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.updateCursor()
         }
 
-        // Continuously re-hide the real cursor.
-        // This is important because macOS can restore it
-        // when another application becomes active.
-        hideTimer = Timer.scheduledTimer(
-            withTimeInterval: 0.25,
+        // Periodic backup.
+        cursorHideTimer = Timer.scheduledTimer(
+            withTimeInterval: 0.5,
             repeats: true
         ) { [weak self] _ in
 
@@ -174,10 +184,164 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if self.isCursorEnabled {
                 self.hideRealCursor()
                 self.cursorWindow.orderFrontRegardless()
+                self.updateCursor()
             }
         }
 
+        setupGlobalMonitoring()
+
+        setupApplicationNotifications()
+
         updateCursor()
+    }
+
+
+    // MARK: - Global Monitoring
+
+    private func setupGlobalMonitoring() {
+
+        mouseMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [
+                .mouseMoved,
+                .leftMouseDown,
+                .rightMouseDown,
+                .otherMouseDown
+            ]
+        ) { [weak self] _ in
+
+            guard let self = self else {
+                return
+            }
+
+            if self.isCursorEnabled {
+
+                self.hideRealCursor()
+                self.cursorWindow.orderFrontRegardless()
+                self.updateCursor()
+            }
+        }
+
+        clickMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [
+                .leftMouseUp,
+                .rightMouseUp,
+                .otherMouseUp
+            ]
+        ) { [weak self] _ in
+
+            guard let self = self else {
+                return
+            }
+
+            if self.isCursorEnabled {
+
+                self.hideRealCursor()
+                self.cursorWindow.orderFrontRegardless()
+                self.updateCursor()
+            }
+        }
+
+        keyMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [
+                .keyDown,
+                .keyUp
+            ]
+        ) { [weak self] _ in
+
+            guard let self = self else {
+                return
+            }
+
+            if self.isCursorEnabled {
+
+                self.hideRealCursor()
+                self.cursorWindow.orderFrontRegardless()
+            }
+        }
+    }
+
+
+    // MARK: - Application Notifications
+
+    private func setupApplicationNotifications() {
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(
+                applicationDidBecomeActive
+            ),
+            name: NSApplication.didBecomeActiveNotification,
+            object: nil
+        )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(
+                applicationDidResignActive
+            ),
+            name: NSApplication.didResignActiveNotification,
+            object: nil
+        )
+
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(
+                workspaceApplicationActivated
+            ),
+            name: NSWorkspace.didActivateApplicationNotification,
+            object: nil
+        )
+    }
+
+
+    @objc private func applicationDidBecomeActive(
+        _ notification: Notification
+    ) {
+
+        if isCursorEnabled {
+
+            hideRealCursor()
+            cursorWindow.orderFrontRegardless()
+            updateCursor()
+        }
+    }
+
+
+    @objc private func applicationDidResignActive(
+        _ notification: Notification
+    ) {
+
+        if isCursorEnabled {
+
+            hideRealCursor()
+            cursorWindow.orderFrontRegardless()
+            updateCursor()
+        }
+    }
+
+
+    @objc private func workspaceApplicationActivated(
+        _ notification: Notification
+    ) {
+
+        if isCursorEnabled {
+
+            // Give macOS a moment to finish switching apps,
+            // then hide the real cursor again.
+            DispatchQueue.main.async { [weak self] in
+
+                guard let self = self else {
+                    return
+                }
+
+                if self.isCursorEnabled {
+
+                    self.hideRealCursor()
+                    self.cursorWindow.orderFrontRegardless()
+                    self.updateCursor()
+                }
+            }
+        }
     }
 
 
@@ -185,42 +349,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func hideRealCursor() {
 
+        // AppKit cursor hiding.
         NSCursor.hide()
 
-        var displayCount: UInt32 = 0
-
-        CGGetActiveDisplayList(
-            0,
-            nil,
-            &displayCount
+        // Core Graphics cursor hiding.
+        CGDisplayHideCursor(
+            kCGDirectMainDisplay
         )
-
-        guard displayCount > 0 else {
-
-            CGDisplayHideCursor(
-                CGMainDisplayID()
-            )
-
-            return
-        }
-
-        var displays = [
-            CGDirectDisplayID
-        ](
-            repeating: 0,
-            count: Int(displayCount)
-        )
-
-        CGGetActiveDisplayList(
-            displayCount,
-            &displays,
-            &displayCount
-        )
-
-        for display in displays {
-
-            CGDisplayHideCursor(display)
-        }
     }
 
 
@@ -230,40 +365,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         NSCursor.unhide()
 
-        var displayCount: UInt32 = 0
-
-        CGGetActiveDisplayList(
-            0,
-            nil,
-            &displayCount
+        CGDisplayShowCursor(
+            kCGDirectMainDisplay
         )
-
-        guard displayCount > 0 else {
-
-            CGDisplayShowCursor(
-                CGMainDisplayID()
-            )
-
-            return
-        }
-
-        var displays = [
-            CGDirectDisplayID
-        ](
-            repeating: 0,
-            count: Int(displayCount)
-        )
-
-        CGGetActiveDisplayList(
-            displayCount,
-            &displays,
-            &displayCount
-        )
-
-        for display in displays {
-
-            CGDisplayShowCursor(display)
-        }
     }
 
 
@@ -277,7 +381,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let mouse = NSEvent.mouseLocation
 
-        // Keep the tip exactly at the mouse position.
+        // Tip of the RGB cursor.
         let x = mouse.x - 3
         let y = mouse.y - 3
 
@@ -409,11 +513,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         isCursorEnabled = false
 
         animationTimer?.invalidate()
-        hideTimer?.invalidate()
+        cursorHideTimer?.invalidate()
+
+        if let monitor = mouseMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
+
+        if let monitor = clickMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
+
+        if let monitor = keyMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
 
         cursorWindow?.orderOut(nil)
 
         showRealCursor()
+
+        NotificationCenter.default.removeObserver(self)
+
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
     }
 
 
@@ -428,7 +548,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 
-// MARK: - Start
+// MARK: - Start Application
 
 let app = NSApplication.shared
 
