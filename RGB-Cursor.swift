@@ -6,24 +6,48 @@ import QuartzCore
 final class CursorView: NSView {
 
     private var hue: CGFloat = 0
+    private var timer: Timer?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.clear.cgColor
+
+        timer = Timer.scheduledTimer(
+            withTimeInterval: 0.04,
+            repeats: true
+        ) { [weak self] _ in
+            guard let self = self else { return }
+
+            self.hue += 2
+
+            if self.hue >= 360 {
+                self.hue -= 360
+            }
+
+            self.needsDisplay = true
+        }
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        timer?.invalidate()
+    }
 
     override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        let size: CGFloat = 24
 
         guard let context = NSGraphicsContext.current?.cgContext else {
             return
         }
 
-        context.clear(bounds)
-
-        let color = NSColor(
-            hue: hue / 360.0,
-            saturation: 0.38,
-            brightness: 1.0,
-            alpha: 1.0
-        )
-
-        // Small normal arrow.
-        // Tip is at the top-left.
+        // Cursor shape
         let path = CGMutablePath()
 
         path.move(to: CGPoint(x: 3, y: 3))
@@ -35,37 +59,54 @@ final class CursorView: NSView {
         path.addLine(to: CGPoint(x: 9, y: 9))
         path.closeSubpath()
 
-        // Soft pastel glow.
+        // Convert hue into a soft pastel color
+        let color = NSColor(
+            hue: hue / 360.0,
+            saturation: 0.45,
+            brightness: 1.0,
+            alpha: 1.0
+        )
+
+        // Soft glow
         context.saveGState()
 
         context.setShadow(
             offset: .zero,
-            blur: 2.0,
-            color: color.withAlphaComponent(0.3).cgColor
-        )
-
-        context.setFillColor(
-            NSColor.white.withAlphaComponent(0.96).cgColor
+            blur: 3,
+            color: color.withAlphaComponent(0.45).cgColor
         )
 
         context.setStrokeColor(color.cgColor)
-        context.setLineWidth(1.2)
-
+        context.setLineWidth(1.5)
+        context.setLineJoin(.round)
         context.addPath(path)
-        context.drawPath(using: .fillStroke)
+        context.strokePath()
 
         context.restoreGState()
-    }
 
-    func updateHue() {
+        // White/pastel center
+        context.saveGState()
 
-        hue += 0.8
+        context.setFillColor(
+            NSColor.white.withAlphaComponent(0.92).cgColor
+        )
 
-        if hue >= 360 {
-            hue = 0
-        }
+        context.addPath(path)
+        context.fillPath()
 
-        needsDisplay = true
+        context.restoreGState()
+
+        // Thin RGB outline
+        context.saveGState()
+
+        context.setStrokeColor(color.cgColor)
+        context.setLineWidth(1.2)
+        context.setLineJoin(.round)
+
+        context.addPath(path)
+        context.strokePath()
+
+        context.restoreGState()
     }
 }
 
@@ -74,16 +115,29 @@ final class CursorView: NSView {
 
 final class CursorWindow: NSWindow {
 
+    let cursorView: CursorView
+
     init() {
+
+        let size: CGFloat = 24
+
+        cursorView = CursorView(
+            frame: NSRect(
+                x: 0,
+                y: 0,
+                width: size,
+                height: size
+            )
+        )
 
         super.init(
             contentRect: NSRect(
                 x: 0,
                 y: 0,
-                width: 24,
-                height: 24
+                width: size,
+                height: size
             ),
-            styleMask: .borderless,
+            styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
@@ -92,10 +146,8 @@ final class CursorWindow: NSWindow {
         backgroundColor = .clear
         hasShadow = false
 
-        // Never block mouse clicks.
         ignoresMouseEvents = true
 
-        // Put RGB cursor above the normal cursor level.
         level = NSWindow.Level(
             rawValue: Int(
                 CGWindowLevelForKey(.cursorWindow)
@@ -105,8 +157,32 @@ final class CursorWindow: NSWindow {
         collectionBehavior = [
             .canJoinAllSpaces,
             .fullScreenAuxiliary,
-            .stationary
+            .stationary,
+            .ignoresCycle
         ]
+
+        contentView = cursorView
+
+        setIsVisible(true)
+        orderFrontRegardless()
+    }
+
+    func updatePosition() {
+
+        let mouse = NSEvent.mouseLocation
+
+        // macOS screen coordinates have their origin at the bottom-left.
+        // The cursor shape is drawn with its point near the top-left,
+        // so we offset it slightly.
+        let x = mouse.x - 3
+        let y = mouse.y - 3
+
+        setFrameOrigin(
+            NSPoint(
+                x: x,
+                y: y
+            )
+        )
     }
 }
 
@@ -115,22 +191,18 @@ final class CursorWindow: NSWindow {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
-    private var cursorWindow: CursorWindow!
-    private var cursorView: CursorView!
+    private var cursorWindow: CursorWindow?
 
-    private var animationTimer: Timer!
-    private var cursorHideTimer: Timer!
+    private var positionTimer: Timer?
+    private var hideTimer: Timer?
 
-    private var statusItem: NSStatusItem!
+    private var statusItem: NSStatusItem?
 
-    private var mouseMonitor: Any?
-    private var clickMonitor: Any?
-    private var keyMonitor: Any?
-
-    private var isCursorEnabled = true
+    private var isCursorHidden = false
+    private var isRunning = true
 
 
-    // MARK: - Launch
+    // MARK: Launch
 
     func applicationDidFinishLaunching(
         _ notification: Notification
@@ -138,289 +210,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         setupMenuBar()
 
-        cursorView = CursorView(
-            frame: NSRect(
-                x: 0,
-                y: 0,
-                width: 24,
-                height: 24
-            )
-        )
-
         cursorWindow = CursorWindow()
 
-        cursorWindow.contentView = cursorView
+        startPositionTracking()
 
-        // Hide the real cursor.
-        hideRealCursor()
+        hideSystemCursor()
 
-        // Show our RGB cursor.
-        cursorWindow.orderFrontRegardless()
+        startCursorWatchdog()
 
-        // RGB animation.
-        animationTimer = Timer.scheduledTimer(
-            withTimeInterval: 0.04,
-            repeats: true
-        ) { [weak self] _ in
-
-            guard let self = self else {
-                return
-            }
-
-            self.cursorView.updateHue()
-            self.updateCursor()
-        }
-
-        // Periodic backup.
-        cursorHideTimer = Timer.scheduledTimer(
-            withTimeInterval: 0.5,
-            repeats: true
-        ) { [weak self] _ in
-
-            guard let self = self else {
-                return
-            }
-
-            if self.isCursorEnabled {
-                self.hideRealCursor()
-                self.cursorWindow.orderFrontRegardless()
-                self.updateCursor()
-            }
-        }
-
-        setupGlobalMonitoring()
-
-        setupApplicationNotifications()
-
-        updateCursor()
+        cursorWindow?.updatePosition()
+        cursorWindow?.orderFrontRegardless()
     }
 
 
-    // MARK: - Global Monitoring
-
-    private func setupGlobalMonitoring() {
-
-        mouseMonitor = NSEvent.addGlobalMonitorForEvents(
-            matching: [
-                .mouseMoved,
-                .leftMouseDown,
-                .rightMouseDown,
-                .otherMouseDown
-            ]
-        ) { [weak self] _ in
-
-            guard let self = self else {
-                return
-            }
-
-            if self.isCursorEnabled {
-
-                self.hideRealCursor()
-                self.cursorWindow.orderFrontRegardless()
-                self.updateCursor()
-            }
-        }
-
-        clickMonitor = NSEvent.addGlobalMonitorForEvents(
-            matching: [
-                .leftMouseUp,
-                .rightMouseUp,
-                .otherMouseUp
-            ]
-        ) { [weak self] _ in
-
-            guard let self = self else {
-                return
-            }
-
-            if self.isCursorEnabled {
-
-                self.hideRealCursor()
-                self.cursorWindow.orderFrontRegardless()
-                self.updateCursor()
-            }
-        }
-
-        keyMonitor = NSEvent.addGlobalMonitorForEvents(
-            matching: [
-                .keyDown,
-                .keyUp
-            ]
-        ) { [weak self] _ in
-
-            guard let self = self else {
-                return
-            }
-
-            if self.isCursorEnabled {
-
-                self.hideRealCursor()
-                self.cursorWindow.orderFrontRegardless()
-            }
-        }
-    }
-
-
-    // MARK: - Application Notifications
-
-    private func setupApplicationNotifications() {
-
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(
-                applicationDidBecomeActive
-            ),
-            name: NSApplication.didBecomeActiveNotification,
-            object: nil
-        )
-
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(
-                applicationDidResignActive
-            ),
-            name: NSApplication.didResignActiveNotification,
-            object: nil
-        )
-
-        NSWorkspace.shared.notificationCenter.addObserver(
-            self,
-            selector: #selector(
-                workspaceApplicationActivated
-            ),
-            name: NSWorkspace.didActivateApplicationNotification,
-            object: nil
-        )
-    }
-
-
-    @objc private func applicationDidBecomeActive(
-        _ notification: Notification
-    ) {
-
-        if isCursorEnabled {
-
-            hideRealCursor()
-            cursorWindow.orderFrontRegardless()
-            updateCursor()
-        }
-    }
-
-
-    @objc private func applicationDidResignActive(
-        _ notification: Notification
-    ) {
-
-        if isCursorEnabled {
-
-            hideRealCursor()
-            cursorWindow.orderFrontRegardless()
-            updateCursor()
-        }
-    }
-
-
-    @objc private func workspaceApplicationActivated(
-        _ notification: Notification
-    ) {
-
-        if isCursorEnabled {
-
-            // Give macOS a moment to finish switching apps,
-            // then hide the real cursor again.
-            DispatchQueue.main.async { [weak self] in
-
-                guard let self = self else {
-                    return
-                }
-
-                if self.isCursorEnabled {
-
-                    self.hideRealCursor()
-                    self.cursorWindow.orderFrontRegardless()
-                    self.updateCursor()
-                }
-            }
-        }
-    }
-
-
-    // MARK: - Hide Real Cursor
-
-    private func hideRealCursor() {
-
-        // AppKit cursor hiding.
-        NSCursor.hide()
-
-        // Core Graphics cursor hiding.
-        CGDisplayHideCursor(
-            kCGDirectMainDisplay
-        )
-    }
-
-
-    // MARK: - Show Real Cursor
-
-    private func showRealCursor() {
-
-        NSCursor.unhide()
-
-        CGDisplayShowCursor(
-            kCGDirectMainDisplay
-        )
-    }
-
-
-    // MARK: - Cursor Position
-
-    private func updateCursor() {
-
-        guard isCursorEnabled else {
-            return
-        }
-
-        let mouse = NSEvent.mouseLocation
-
-        // Tip of the RGB cursor.
-        let x = mouse.x - 3
-        let y = mouse.y - 3
-
-        cursorWindow.setFrameOrigin(
-            NSPoint(
-                x: x,
-                y: y
-            )
-        )
-    }
-
-
-    // MARK: - Menu Bar
+    // MARK: Menu Bar
 
     private func setupMenuBar() {
 
         statusItem = NSStatusBar.system.statusItem(
-            withLength: NSStatusItem.squareLength
+            withLength: NSStatusItem.variableLength
         )
 
-        statusItem.button?.title = "🌈"
-
-        statusItem.button?.toolTip = "RGB Cursor"
+        statusItem?.button?.title = "🌈"
 
         let menu = NSMenu()
-
-        let titleItem = NSMenuItem(
-            title: "RGB Cursor",
-            action: nil,
-            keyEquivalent: ""
-        )
-
-        titleItem.isEnabled = false
-
-        menu.addItem(titleItem)
-
-        menu.addItem(
-            NSMenuItem.separator()
-        )
 
         let toggleItem = NSMenuItem(
             title: "RGB Cursor: ON",
@@ -429,7 +242,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         toggleItem.target = self
-        toggleItem.tag = 100
 
         menu.addItem(toggleItem)
 
@@ -438,7 +250,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         let quitItem = NSMenuItem(
-            title: "Quit RGB Cursor",
+            title: "Quit",
             action: #selector(quitApp),
             keyEquivalent: "q"
         )
@@ -447,103 +259,182 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(quitItem)
 
-        statusItem.menu = menu
+        statusItem?.menu = menu
     }
 
 
-    // MARK: - Toggle
+    // MARK: Toggle
 
     @objc private func toggleCursor() {
 
-        isCursorEnabled.toggle()
+        isRunning.toggle()
 
-        if isCursorEnabled {
+        if isRunning {
 
-            hideRealCursor()
+            hideSystemCursor()
 
-            cursorWindow.orderFrontRegardless()
+            cursorWindow?.isHidden = false
+            cursorWindow?.orderFrontRegardless()
 
-            updateCursor()
+            statusItem?.menu?.item(at: 0)?.title =
+                "RGB Cursor: ON"
 
         } else {
 
-            cursorWindow.orderOut(nil)
+            showSystemCursor()
 
-            showRealCursor()
+            cursorWindow?.isHidden = true
+
+            statusItem?.menu?.item(at: 0)?.title =
+                "RGB Cursor: OFF"
         }
-
-        updateMenu()
     }
 
 
-    // MARK: - Update Menu
+    // MARK: Cursor Position
 
-    private func updateMenu() {
+    private func startPositionTracking() {
 
-        guard let menu = statusItem.menu else {
+        positionTimer = Timer.scheduledTimer(
+            withTimeInterval: 1.0 / 120.0,
+            repeats: true
+        ) { [weak self] _ in
+
+            guard let self = self else {
+                return
+            }
+
+            guard self.isRunning else {
+                return
+            }
+
+            self.cursorWindow?.updatePosition()
+        }
+    }
+
+
+    // MARK: Hide System Cursor
+
+    private func hideSystemCursor() {
+
+        guard !isCursorHidden else {
             return
         }
 
-        for item in menu.items {
+        isCursorHidden = true
 
-            if item.tag == 100 {
+        NSCursor.hide()
 
-                item.title = isCursorEnabled
-                    ? "RGB Cursor: ON"
-                    : "RGB Cursor: OFF"
+        CGDisplayHideCursor(
+            CGMainDisplayID()
+        )
+    }
+
+
+    // MARK: Show System Cursor
+
+    private func showSystemCursor() {
+
+        guard isCursorHidden else {
+            return
+        }
+
+        isCursorHidden = false
+
+        NSCursor.unhide()
+
+        CGDisplayShowCursor(
+            CGMainDisplayID()
+        )
+    }
+
+
+    // MARK: Cursor Watchdog
+
+    private func startCursorWatchdog() {
+
+        hideTimer = Timer.scheduledTimer(
+            withTimeInterval: 1.0,
+            repeats: true
+        ) { [weak self] _ in
+
+            guard let self = self else {
+                return
             }
+
+            guard self.isRunning else {
+                return
+            }
+
+            self.cursorWindow?.updatePosition()
+            self.cursorWindow?.orderFrontRegardless()
+
+            // Try to keep the system cursor hidden.
+            //
+            // The guard inside hideSystemCursor()
+            // prevents hide-count stacking.
+            self.hideSystemCursor()
         }
     }
 
 
-    // MARK: - Quit
+    // MARK: App Activation
+
+    func applicationDidBecomeActive(
+        _ notification: Notification
+    ) {
+
+        guard isRunning else {
+            return
+        }
+
+        hideSystemCursor()
+
+        cursorWindow?.orderFrontRegardless()
+    }
+
+
+    func applicationDidResignActive(
+        _ notification: Notification
+    ) {
+
+        guard isRunning else {
+            return
+        }
+
+        // Try to maintain the hidden state even after
+        // the application loses focus.
+        hideSystemCursor()
+
+        cursorWindow?.orderFrontRegardless()
+    }
+
+
+    // MARK: Quit
 
     @objc private func quitApp() {
 
-        restoreCursor()
+        positionTimer?.invalidate()
+        hideTimer?.invalidate()
 
-        NSApplication.shared.terminate(nil)
+        showSystemCursor()
+
+        cursorWindow?.close()
+
+        NSApp.terminate(nil)
     }
 
 
-    // MARK: - Restore
-
-    private func restoreCursor() {
-
-        isCursorEnabled = false
-
-        animationTimer?.invalidate()
-        cursorHideTimer?.invalidate()
-
-        if let monitor = mouseMonitor {
-            NSEvent.removeMonitor(monitor)
-        }
-
-        if let monitor = clickMonitor {
-            NSEvent.removeMonitor(monitor)
-        }
-
-        if let monitor = keyMonitor {
-            NSEvent.removeMonitor(monitor)
-        }
-
-        cursorWindow?.orderOut(nil)
-
-        showRealCursor()
-
-        NotificationCenter.default.removeObserver(self)
-
-        NSWorkspace.shared.notificationCenter.removeObserver(self)
-    }
-
-
-    // MARK: - Termination
+    // MARK: Application Termination
 
     func applicationWillTerminate(
         _ notification: Notification
     ) {
 
-        restoreCursor()
+        positionTimer?.invalidate()
+        hideTimer?.invalidate()
+
+        showSystemCursor()
     }
 }
 
