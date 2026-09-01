@@ -1,7 +1,7 @@
 import Cocoa
 import QuartzCore
 
-// MARK: - RGB Cursor View
+// MARK: - Cursor View
 
 final class CursorView: NSView {
 
@@ -15,7 +15,6 @@ final class CursorView: NSView {
 
         context.clear(bounds)
 
-        // Soft pastel rainbow
         let color = NSColor(
             hue: hue / 360.0,
             saturation: 0.38,
@@ -23,19 +22,20 @@ final class CursorView: NSView {
             alpha: 1.0
         )
 
-        // Small cursor pointing upper-left
+        // Small normal macOS-style arrow.
+        // The tip is at the TOP-LEFT.
         let path = CGMutablePath()
 
-        path.move(to: CGPoint(x: 3, y: 21))
-        path.addLine(to: CGPoint(x: 3, y: 3))
-        path.addLine(to: CGPoint(x: 19, y: 13))
-        path.addLine(to: CGPoint(x: 12, y: 13))
-        path.addLine(to: CGPoint(x: 16, y: 20))
-        path.addLine(to: CGPoint(x: 13, y: 22))
-        path.addLine(to: CGPoint(x: 9, y: 15))
+        path.move(to: CGPoint(x: 3, y: 3))
+        path.addLine(to: CGPoint(x: 3, y: 21))
+        path.addLine(to: CGPoint(x: 19, y: 11))
+        path.addLine(to: CGPoint(x: 12, y: 11))
+        path.addLine(to: CGPoint(x: 16, y: 4))
+        path.addLine(to: CGPoint(x: 13, y: 2))
+        path.addLine(to: CGPoint(x: 9, y: 9))
         path.closeSubpath()
 
-        // Very soft glow
+        // Soft pastel glow
         context.saveGState()
 
         context.setShadow(
@@ -44,43 +44,21 @@ final class CursorView: NSView {
             color: color.withAlphaComponent(0.3).cgColor
         )
 
-        context.setStrokeColor(color.cgColor)
-        context.setLineWidth(1.2)
-
-        context.addPath(path)
-        context.strokePath()
-
-        context.restoreGState()
-
-        // Soft outline
-        context.setStrokeColor(
-            NSColor.black.withAlphaComponent(0.6).cgColor
-        )
-
-        context.setLineWidth(1.4)
-
-        context.addPath(path)
-        context.strokePath()
-
-        // White center
         context.setFillColor(
             NSColor.white.withAlphaComponent(0.96).cgColor
         )
 
-        context.addPath(path)
-        context.fillPath()
-
-        // Pastel RGB border
         context.setStrokeColor(color.cgColor)
-        context.setLineWidth(1.0)
+        context.setLineWidth(1.2)
 
         context.addPath(path)
-        context.strokePath()
+        context.drawPath(using: .fillStroke)
+
+        context.restoreGState()
     }
 
     func updateHue() {
 
-        // Slow smooth RGB animation
         hue += 0.8
 
         if hue >= 360 {
@@ -114,10 +92,10 @@ final class CursorWindow: NSWindow {
         backgroundColor = .clear
         hasShadow = false
 
-        // NEVER block mouse clicks
+        // Do not block clicks.
         ignoresMouseEvents = true
 
-        // Put our cursor above the normal cursor window level
+        // Put the RGB cursor above the normal cursor level.
         level = NSWindow.Level(
             rawValue: Int(
                 CGWindowLevelForKey(.cursorWindow)
@@ -154,7 +132,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         setupMenuBar()
 
-        // Create the 24x24 cursor
+        // Create cursor view.
         cursorView = CursorView(
             frame: NSRect(
                 x: 0,
@@ -164,20 +142,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         )
 
+        // Create transparent window.
         cursorWindow = CursorWindow()
 
         cursorWindow.contentView = cursorView
 
-        cursorWindow.orderFrontRegardless()
-
-        // Hide the REAL macOS cursor
+        // Hide the real cursor first.
         hideRealCursor()
 
-        // RGB animation
+        // Show our cursor.
+        cursorWindow.orderFrontRegardless()
+
+        // RGB animation timer.
         timer = Timer.scheduledTimer(
             withTimeInterval: 0.04,
             repeats: true
         ) { [weak self] _ in
+
             self?.updateCursor()
         }
 
@@ -189,13 +170,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func hideRealCursor() {
 
-        // Hide through AppKit
+        // AppKit hide.
         NSCursor.hide()
 
-        // Also hide through Core Graphics
-        CGDisplayHideCursor(
-            CGMainDisplayID()
+        // Hide the cursor on every active display.
+        var displayCount: UInt32 = 0
+
+        CGGetActiveDisplayList(
+            0,
+            nil,
+            &displayCount
         )
+
+        if displayCount > 0 {
+
+            var displays = [
+                CGDirectDisplayID
+            ](
+                repeating: 0,
+                count: Int(displayCount)
+            )
+
+            CGGetActiveDisplayList(
+                displayCount,
+                &displays,
+                &displayCount
+            )
+
+            for display in displays {
+
+                CGDisplayHideCursor(display)
+            }
+
+        } else {
+
+            CGDisplayHideCursor(
+                CGMainDisplayID()
+            )
+        }
     }
 
 
@@ -203,13 +215,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showRealCursor() {
 
-        // Show through AppKit
+        // AppKit show.
         NSCursor.unhide()
 
-        // Show through Core Graphics
-        CGDisplayShowCursor(
-            CGMainDisplayID()
+        // Show the cursor on every active display.
+        var displayCount: UInt32 = 0
+
+        CGGetActiveDisplayList(
+            0,
+            nil,
+            &displayCount
         )
+
+        if displayCount > 0 {
+
+            var displays = [
+                CGDirectDisplayID
+            ](
+                repeating: 0,
+                count: Int(displayCount)
+            )
+
+            CGGetActiveDisplayList(
+                displayCount,
+                &displays,
+                &displayCount
+            )
+
+            for display in displays {
+
+                CGDisplayShowCursor(display)
+            }
+
+        } else {
+
+            CGDisplayShowCursor(
+                CGMainDisplayID()
+            )
+        }
     }
 
 
@@ -221,11 +264,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             withLength: NSStatusItem.squareLength
         )
 
-        if let button = statusItem.button {
+        statusItem.button?.title = "🌈"
 
-            button.title = "🌈"
-            button.toolTip = "RGB Cursor"
-        }
+        statusItem.button?.toolTip = "RGB Cursor"
 
         let menu = NSMenu()
 
@@ -291,7 +332,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
 
-    // MARK: - Menu Update
+    // MARK: - Update Menu
 
     private func updateMenu() {
 
@@ -322,9 +363,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         isCursorEnabled = true
 
-        cursorWindow.orderFrontRegardless()
-
         hideRealCursor()
+
+        cursorWindow.orderFrontRegardless()
 
         updateCursor()
     }
@@ -342,7 +383,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
 
-    // MARK: - Position
+    // MARK: - Update Cursor
 
     private func updateCursor() {
 
@@ -354,16 +395,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let mouse = NSEvent.mouseLocation
 
-        // The tip of our arrow is at x=3, y=21.
-        // Put that tip exactly at the real mouse position.
+        // The cursor tip is at (3, 3).
+        // Put that exact point on the real mouse position.
 
-        let x = mouse.x - 3
-        let y = mouse.y - 21
+        let windowX = mouse.x - 3
+        let windowY = mouse.y - 3
 
         cursorWindow.setFrameOrigin(
             NSPoint(
-                x: x,
-                y: y
+                x: windowX,
+                y: windowY
             )
         )
     }
@@ -391,6 +432,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
 
+    // MARK: - Termination
+
     func applicationWillTerminate(
         _ notification: Notification
     ) {
@@ -400,7 +443,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 
-// MARK: - Start
+// MARK: - Start Application
 
 let app = NSApplication.shared
 
