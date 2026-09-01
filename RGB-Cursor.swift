@@ -18,7 +18,10 @@ final class CursorView: NSView {
             withTimeInterval: 0.04,
             repeats: true
         ) { [weak self] _ in
-            guard let self = self else { return }
+
+            guard let self = self else {
+                return
+            }
 
             self.hue += 2
 
@@ -41,13 +44,11 @@ final class CursorView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
-        let size: CGFloat = 24
-
         guard let context = NSGraphicsContext.current?.cgContext else {
             return
         }
 
-        // Cursor shape
+        // Small 24x24 cursor
         let path = CGMutablePath()
 
         path.move(to: CGPoint(x: 3, y: 3))
@@ -59,7 +60,7 @@ final class CursorView: NSView {
         path.addLine(to: CGPoint(x: 9, y: 9))
         path.closeSubpath()
 
-        // Convert hue into a soft pastel color
+        // Soft pastel RGB color
         let color = NSColor(
             hue: hue / 360.0,
             saturation: 0.45,
@@ -73,18 +74,19 @@ final class CursorView: NSView {
         context.setShadow(
             offset: .zero,
             blur: 3,
-            color: color.withAlphaComponent(0.45).cgColor
+            color: color.withAlphaComponent(0.4).cgColor
         )
 
         context.setStrokeColor(color.cgColor)
         context.setLineWidth(1.5)
         context.setLineJoin(.round)
+
         context.addPath(path)
         context.strokePath()
 
         context.restoreGState()
 
-        // White/pastel center
+        // White center
         context.saveGState()
 
         context.setFillColor(
@@ -96,7 +98,7 @@ final class CursorView: NSView {
 
         context.restoreGState()
 
-        // Thin RGB outline
+        // RGB outline
         context.saveGState()
 
         context.setStrokeColor(color.cgColor)
@@ -119,14 +121,12 @@ final class CursorWindow: NSWindow {
 
     init() {
 
-        let size: CGFloat = 24
-
         cursorView = CursorView(
             frame: NSRect(
                 x: 0,
                 y: 0,
-                width: size,
-                height: size
+                width: 24,
+                height: 24
             )
         )
 
@@ -134,8 +134,8 @@ final class CursorWindow: NSWindow {
             contentRect: NSRect(
                 x: 0,
                 y: 0,
-                width: size,
-                height: size
+                width: 24,
+                height: 24
             ),
             styleMask: [.borderless],
             backing: .buffered,
@@ -146,12 +146,13 @@ final class CursorWindow: NSWindow {
         backgroundColor = .clear
         hasShadow = false
 
+        // The RGB cursor must not block clicks.
         ignoresMouseEvents = true
 
+        // Put the RGB cursor above normal windows.
         level = NSWindow.Level(
-            rawValue: Int(
-                CGWindowLevelForKey(.cursorWindow)
-            ) + 10
+            rawValue:
+                Int(CGWindowLevelForKey(.cursorWindow)) + 10
         )
 
         collectionBehavior = [
@@ -163,7 +164,6 @@ final class CursorWindow: NSWindow {
 
         contentView = cursorView
 
-        setIsVisible(true)
         orderFrontRegardless()
     }
 
@@ -171,9 +171,6 @@ final class CursorWindow: NSWindow {
 
         let mouse = NSEvent.mouseLocation
 
-        // macOS screen coordinates have their origin at the bottom-left.
-        // The cursor shape is drawn with its point near the top-left,
-        // so we offset it slightly.
         let x = mouse.x - 3
         let y = mouse.y - 3
 
@@ -273,7 +270,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
             hideSystemCursor()
 
-            cursorWindow?.isHidden = false
             cursorWindow?.orderFrontRegardless()
 
             statusItem?.menu?.item(at: 0)?.title =
@@ -283,7 +279,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
             showSystemCursor()
 
-            cursorWindow?.isHidden = true
+            cursorWindow?.orderOut(nil)
 
             statusItem?.menu?.item(at: 0)?.title =
                 "RGB Cursor: OFF"
@@ -369,10 +365,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.cursorWindow?.updatePosition()
             self.cursorWindow?.orderFrontRegardless()
 
-            // Try to keep the system cursor hidden.
-            //
-            // The guard inside hideSystemCursor()
-            // prevents hide-count stacking.
+            // Re-apply hiding if necessary.
             self.hideSystemCursor()
         }
     }
@@ -402,8 +395,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        // Try to maintain the hidden state even after
-        // the application loses focus.
         hideSystemCursor()
 
         cursorWindow?.orderFrontRegardless()
