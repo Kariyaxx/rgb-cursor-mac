@@ -3,18 +3,8 @@ import QuartzCore
 import Darwin
 
 // ============================================================
-// PRIVATE SKYLIGHT / WINDOWSERVER SUPPORT
+// PRIVATE SKYLIGHT SUPPORT
 // ============================================================
-//
-// This is intentionally loaded dynamically instead of linking
-// directly against the private SkyLight framework.
-//
-// The important part is:
-//     SetsCursorInBackground = true
-//
-// This allows CGDisplayHideCursor() to continue working when
-// our menu-bar app is not the foreground application.
-//
 
 typealias CGSConnectionID = Int32
 
@@ -49,16 +39,11 @@ final class SkyLightCursorController {
         )
 
         guard let handle = frameworkHandle else {
-
-            print(
-                "RGB Cursor: Could not load SkyLight.framework"
-            )
-
+            print("RGB Cursor: Could not load SkyLight.framework")
             return
         }
 
-
-        // CGSMainConnectionID
+        // Find CGSMainConnectionID
 
         if let symbol = dlsym(
             handle,
@@ -72,8 +57,7 @@ final class SkyLightCursorController {
                 )
         }
 
-
-        // CGSSetConnectionProperty
+        // Find CGSSetConnectionProperty
 
         if let symbol = dlsym(
             handle,
@@ -97,6 +81,7 @@ final class SkyLightCursorController {
     }
 
 
+    @discardableResult
     func enableBackgroundCursorHiding() -> Bool {
 
         guard
@@ -129,16 +114,8 @@ final class SkyLightCursorController {
         }
 
 
-        guard let key =
-            CFStringCreateWithCString(
-                nil,
-                "SetsCursorInBackground",
-                CFStringBuiltInEncodings.UTF8.rawValue
-            )
-        else {
-
-            return false
-        }
+        let key: CFString =
+            "SetsCursorInBackground" as CFString
 
 
         let result =
@@ -148,9 +125,6 @@ final class SkyLightCursorController {
                 key,
                 kCFBooleanTrue
             )
-
-
-        CFRelease(key)
 
 
         if result == 0 {
@@ -243,9 +217,9 @@ final class CursorView: NSView {
         }
 
 
-        // ----------------------------------------------------
-        // Cursor shape
-        // ----------------------------------------------------
+        // ====================================================
+        // SMALL 24x24 CURSOR
+        // ====================================================
 
         let path = CGMutablePath()
 
@@ -309,9 +283,9 @@ final class CursorView: NSView {
         path.closeSubpath()
 
 
-        // ----------------------------------------------------
-        // Soft pastel RGB color
-        // ----------------------------------------------------
+        // ====================================================
+        // SOFT PASTEL RGB
+        // ====================================================
 
         let color = NSColor(
             hue: hue / 360.0,
@@ -321,9 +295,9 @@ final class CursorView: NSView {
         )
 
 
-        // ----------------------------------------------------
-        // Soft glow
-        // ----------------------------------------------------
+        // ====================================================
+        // SOFT GLOW
+        // ====================================================
 
         context.saveGState()
 
@@ -356,9 +330,9 @@ final class CursorView: NSView {
         context.restoreGState()
 
 
-        // ----------------------------------------------------
-        // White center
-        // ----------------------------------------------------
+        // ====================================================
+        // WHITE CENTER
+        // ====================================================
 
         context.saveGState()
 
@@ -378,9 +352,9 @@ final class CursorView: NSView {
         context.restoreGState()
 
 
-        // ----------------------------------------------------
-        // RGB outline
-        // ----------------------------------------------------
+        // ====================================================
+        // RGB OUTLINE
+        // ====================================================
 
         context.saveGState()
 
@@ -451,13 +425,12 @@ final class CursorWindow: NSWindow {
         hasShadow = false
 
 
-        // IMPORTANT:
-        // The RGB cursor doesn't intercept clicks.
+        // RGB cursor must never block clicks.
 
         ignoresMouseEvents = true
 
 
-        // Put our cursor above the normal cursor/window level.
+        // Put RGB cursor above normal windows/cursor.
 
         level = NSWindow.Level(
             rawValue:
@@ -489,6 +462,9 @@ final class CursorWindow: NSWindow {
         let mouse =
             NSEvent.mouseLocation
 
+
+        // Keep the cursor tip aligned with
+        // the actual mouse position.
 
         let x =
             mouse.x - 3
@@ -546,13 +522,12 @@ final class AppDelegate:
 
 
     // ========================================================
-    // LAUNCH
+    // APP START
     // ========================================================
 
     func applicationDidFinishLaunching(
         _ notification: Notification
     ) {
-
 
         setupMenuBar()
 
@@ -561,12 +536,10 @@ final class AppDelegate:
             CursorWindow()
 
 
-        // ----------------------------------------------------
-        // IMPORTANT:
-        // Enable background cursor hiding BEFORE hiding cursor.
-        // ----------------------------------------------------
+        // Enable background cursor hiding.
 
-        skyLight.enableBackgroundCursorHiding()
+        skyLight
+            .enableBackgroundCursorHiding()
 
 
         startPositionTracking()
@@ -578,10 +551,12 @@ final class AppDelegate:
         startCursorWatchdog()
 
 
-        cursorWindow?.updatePosition()
+        cursorWindow?
+            .updatePosition()
 
 
-        cursorWindow?.orderFrontRegardless()
+        cursorWindow?
+            .orderFrontRegardless()
     }
 
 
@@ -590,7 +565,6 @@ final class AppDelegate:
     // ========================================================
 
     private func setupMenuBar() {
-
 
         statusItem =
             NSStatusBar.system.statusItem(
@@ -606,6 +580,8 @@ final class AppDelegate:
         let menu =
             NSMenu()
 
+
+        // ON/OFF
 
         let toggleItem =
             NSMenuItem(
@@ -635,6 +611,8 @@ final class AppDelegate:
             NSMenuItem.separator()
         )
 
+
+        // QUIT
 
         let quitItem =
             NSMenuItem(
@@ -666,17 +644,17 @@ final class AppDelegate:
 
 
     // ========================================================
-    // TOGGLE
+    // TOGGLE RGB CURSOR
     // ========================================================
 
     @objc private func toggleCursor() {
-
 
         isRunning.toggle()
 
 
         if isRunning {
 
+            // Re-enable background hiding.
 
             skyLight
                 .enableBackgroundCursorHiding()
@@ -697,7 +675,6 @@ final class AppDelegate:
 
 
         } else {
-
 
             showSystemCursor()
 
@@ -721,7 +698,6 @@ final class AppDelegate:
 
     private func startPositionTracking() {
 
-
         positionTimer =
             Timer.scheduledTimer(
                 withTimeInterval:
@@ -730,7 +706,6 @@ final class AppDelegate:
                 repeats:
                     true
             ) { [weak self] _ in
-
 
                 guard
                     let self = self
@@ -753,11 +728,10 @@ final class AppDelegate:
 
 
     // ========================================================
-    // HIDE SYSTEM CURSOR
+    // HIDE REAL MACOS CURSOR
     // ========================================================
 
     private func hideSystemCursor() {
-
 
         guard
             !isCursorHidden
@@ -780,11 +754,10 @@ final class AppDelegate:
 
 
     // ========================================================
-    // SHOW SYSTEM CURSOR
+    // SHOW REAL MACOS CURSOR
     // ========================================================
 
     private func showSystemCursor() {
-
 
         guard
             isCursorHidden
@@ -807,11 +780,10 @@ final class AppDelegate:
 
 
     // ========================================================
-    // WATCHDOG
+    // BACKGROUND WATCHDOG
     // ========================================================
 
     private func startCursorWatchdog() {
-
 
         hideTimer =
             Timer.scheduledTimer(
@@ -821,7 +793,6 @@ final class AppDelegate:
                 repeats:
                     true
             ) { [weak self] _ in
-
 
                 guard
                     let self = self
@@ -837,14 +808,20 @@ final class AppDelegate:
                 }
 
 
-                // Re-enable the background property.
+                // Keep WindowServer background
+                // cursor hiding enabled.
+
                 self.skyLight
                     .enableBackgroundCursorHiding()
 
 
+                // Keep RGB cursor attached to mouse.
+
                 self.cursorWindow?
                     .updatePosition()
 
+
+                // Keep RGB cursor above everything.
 
                 self.cursorWindow?
                     .orderFrontRegardless()
@@ -853,13 +830,12 @@ final class AppDelegate:
 
 
     // ========================================================
-    // APP ACTIVATION
+    // APP BECOMES ACTIVE
     // ========================================================
 
     func applicationDidBecomeActive(
         _ notification: Notification
     ) {
-
 
         guard
             isRunning
@@ -880,10 +856,13 @@ final class AppDelegate:
     }
 
 
+    // ========================================================
+    // APP LOSES FOCUS
+    // ========================================================
+
     func applicationDidResignActive(
         _ notification: Notification
     ) {
-
 
         guard
             isRunning
@@ -892,9 +871,8 @@ final class AppDelegate:
         }
 
 
-        // This is the important part:
-        // re-assert background cursor control when
-        // another application becomes active.
+        // This is important because another app
+        // is now in the foreground.
 
         skyLight
             .enableBackgroundCursorHiding()
@@ -914,7 +892,6 @@ final class AppDelegate:
 
     @objc private func quitApp() {
 
-
         positionTimer?
             .invalidate()
 
@@ -922,6 +899,8 @@ final class AppDelegate:
         hideTimer?
             .invalidate()
 
+
+        // Always restore the real cursor.
 
         showSystemCursor()
 
@@ -935,13 +914,12 @@ final class AppDelegate:
 
 
     // ========================================================
-    // TERMINATION
+    // APP TERMINATION
     // ========================================================
 
     func applicationWillTerminate(
         _ notification: Notification
     ) {
-
 
         positionTimer?
             .invalidate()
@@ -957,7 +935,7 @@ final class AppDelegate:
 
 
 // ============================================================
-// START APP
+// START APPLICATION
 // ============================================================
 
 let app =
@@ -972,7 +950,7 @@ app.delegate =
     delegate
 
 
-// Menu-bar-only application.
+// Menu-bar application only.
 
 app.setActivationPolicy(
     .accessory
